@@ -101,7 +101,7 @@ export default async function handler(req, res) {
 }
 
 
-
+//Old code
 // import sharp from 'sharp';
 // import TextToSVG from 'text-to-svg';
 
