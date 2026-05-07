@@ -1,22 +1,26 @@
 import sharp from 'sharp';
 import TextToSVG from 'text-to-svg';
-import path from 'path';
-import fs from 'fs';
 
 export const config = { maxDuration: 30 };
 
 export default async function handler(req, res) {
+
+  // STEP 1: Verify Sharp works at all
+  try {
+    await sharp({
+      create: { width: 10, height: 10, channels: 3, background: { r: 255, g: 0, b: 0 } }
+    }).jpeg().toBuffer();
+  } catch (e) {
+    return res.status(500).json({ success: false, error: `Sharp init failed: ${e.message}` });
+  }
+
   if (req.method !== 'POST') {
-    return res.status(200).json({ message: 'API is awake. Please send a POST request.' });
+    return res.status(200).json({ message: 'API is awake.' });
   }
 
   try {
-    // 1. FONT CHECK
-    let fontPath = path.join(process.cwd(), 'api', 'fonts', 'Arial.ttf');
-    if (!fs.existsSync(fontPath)) fontPath = path.join(process.cwd(), 'fonts', 'Arial.ttf');
-    if (!fs.existsSync(fontPath)) throw new Error("Font file missing on server.");
-
-    const textToSVG = TextToSVG.loadSync(fontPath);
+    // STEP 2: Use built-in font — no file needed on server
+    const textToSVG = TextToSVG.loadSync();
 
     const { stainUrl, floorUrl, counterUrl, cabinetUrl, wallUrl } = req.body;
 
@@ -24,44 +28,33 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required image URLs' });
     }
 
-    // 2. FIXED IMAGE FETCHER
+    // STEP 3: Fetch images
     const fetchImage = async (url, width, height) => {
-      try {
-    const response = await fetch(url, {
-      redirect: 'follow',  // ← explicitly follow redirects
-      headers: {
-        // Pretend to be a browser — some hosts block server-side fetches
-        'User-Agent': 'Mozilla/5.0 (compatible; CollageBot/1.0)',
-        'Accept': 'image/webp,image/jpeg,image/png,image/*'
+      const response = await fetch(url, {
+        redirect: 'follow',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; CollageBot/1.0)',
+          'Accept': 'image/webp,image/jpeg,image/png,image/*'
+        }
+      });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status} — ${url}`);
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+
+      const isJPEG = buffer[0] === 0xFF && buffer[1] === 0xD8;
+      const isPNG  = buffer[0] === 0x89 && buffer[1] === 0x50;
+      const isWEBP = buffer.slice(8, 12).toString('ascii') === 'WEBP';
+
+      if (!isJPEG && !isPNG && !isWEBP) {
+        throw new Error(`Not a valid image at ${url}. Got: ${buffer.slice(0, 80).toString('utf8')}`);
       }
-    });
 
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return sharp(buffer, { failOnError: false })
+        .resize(width, height, { fit: 'cover' })
+        .toBuffer();
+    };
 
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    // ✅ CHECK MAGIC BYTES — catch HTML/redirect pages masquerading as images
-    const isJPEG = buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF;
-    const isPNG  = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E;
-    const isWEBP = buffer.slice(8, 12).toString('ascii') === 'WEBP';
-
-    if (!isJPEG && !isPNG && !isWEBP) {
-      // Log the first 200 chars so you can see what was actually returned
-      console.error(`Bad buffer for ${url}. First bytes:`, buffer.slice(0, 200).toString('utf8'));
-      throw new Error(`URL did not return a valid image. Got: ${buffer.slice(0, 50).toString('utf8')}`);
-    }
-
-    return await sharp(buffer, { failOnError: false })
-      .resize(width, height, { fit: 'cover' })
-      .toBuffer();
-
-  } catch (e) {
-    throw new Error(`fetchImage failed | ${url} | ${e.message}`);
-  }
-};
-
-    // 3. FETCH ALL IMAGES
     const [stain, floor, counter, cabinet, wall] = await Promise.all([
       fetchImage(stainUrl,   750, 750),
       fetchImage(floorUrl,   750, 750),
@@ -70,68 +63,42 @@ export default async function handler(req, res) {
       fetchImage(wallUrl,    360, 500),
     ]);
 
-    // 4. TEXT LAYERS
-    const headerOptions = {
-      x: 0, y: 0, fontSize: 120, anchor: 'top',
-      attributes: { fill: 'red', stroke: 'red', 'stroke-width': 2 }
-    };
-    const labelOptions = {
-      x: 0, y: 0, fontSize: 80, anchor: 'top',
-      attributes: { fill: 'black', stroke: 'black', 'stroke-width': 1.5 }
-    };
+    // STEP 4: Text layers
+    const headerOptions = { x: 0, y: 0, fontSize: 120, anchor: 'top', attributes: { fill: 'red', stroke: 'red', 'stroke-width': 2 } };
+    const labelOptions  = { x: 0, y: 0, fontSize: 80,  anchor: 'top', attributes: { fill: 'black', stroke: 'black', 'stroke-width': 1.5 } };
+    const t = (text, opts) => Buffer.from(textToSVG.getSVG(text, opts));
 
-    const createTextLayer = (text, options) => {
-      try {
-        return Buffer.from(textToSVG.getSVG(text, options));
-      } catch (e) {
-        throw new Error(`Failed to generate text layer: "${text}" | ${e.message}`);
-      }
-    };
-
-    // 5. COMPOSITE MANIFEST
-    const compositeManifest = [
-      { input: createTextLayer("GUID IMAGE", headerOptions),  top: 50,   left: 630  },
-      { input: stain,                                          top: 200,  left: 150  },
-      { input: createTextLayer("Kitchen Stain", labelOptions), top: 980,  left: 260  },
-      { input: floor,                                          top: 200,  left: 1100 },
-      { input: createTextLayer("Kitchen Floor", labelOptions), top: 980,  left: 1210 },
-      { input: counter,                                        top: 1100, left: 150  },
-      { input: createTextLayer("Counter Top", labelOptions),   top: 1860, left: 290  },
-      { input: cabinet,                                        top: 1100, left: 1080 },
-      { input: createTextLayer("Cabinet", labelOptions),       top: 1640, left: 1110 },
-      { input: createTextLayer("Color", labelOptions),         top: 1740, left: 1150 },
-      { input: wall,                                           top: 1100, left: 1490 },
-      { input: createTextLayer("Wall", labelOptions),          top: 1640, left: 1580 },
-      { input: createTextLayer("Color", labelOptions),         top: 1740, left: 1550 },
-    ];
-
-    // 6. FINAL COMPOSITE
-    let collageBuffer;
-    try {
-      collageBuffer = await sharp({
-        create: { width: 2000, height: 2000, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } }
-      })
-        .composite(compositeManifest)
-        .jpeg({ quality: 90 })
-        .toBuffer();
-    } catch (e) {
-      throw new Error(`Failed to stitch collage | Reason: ${e.message}`);
-    }
-
-    const base64 = collageBuffer.toString('base64');
+    // STEP 5: Composite
+    const collageBuffer = await sharp({
+      create: { width: 2000, height: 2000, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } }
+    })
+    .composite([
+      { input: t("GUIDE IMAGE", headerOptions), top: 50,   left: 630  },
+      { input: stain,                           top: 200,  left: 150  },
+      { input: t("Kitchen Stain", labelOptions),top: 980,  left: 260  },
+      { input: floor,                           top: 200,  left: 1100 },
+      { input: t("Kitchen Floor", labelOptions),top: 980,  left: 1210 },
+      { input: counter,                         top: 1100, left: 150  },
+      { input: t("Counter Top",   labelOptions),top: 1860, left: 290  },
+      { input: cabinet,                         top: 1100, left: 1080 },
+      { input: t("Cabinet",       labelOptions),top: 1640, left: 1110 },
+      { input: t("Color",         labelOptions),top: 1740, left: 1150 },
+      { input: wall,                            top: 1100, left: 1490 },
+      { input: t("Wall",          labelOptions),top: 1640, left: 1580 },
+      { input: t("Color",         labelOptions),top: 1740, left: 1550 },
+    ])
+    .jpeg({ quality: 90 })
+    .toBuffer();
 
     return res.status(200).json({
       success: true,
-      message: "Collage generated successfully",
-      image: `data:image/jpeg;base64,${base64}`
+      image: `data:image/jpeg;base64,${collageBuffer.toString('base64')}`
     });
 
   } catch (err) {
-    console.error("Handler error:", err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
 }
-
 
 
 
