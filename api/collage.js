@@ -87,21 +87,21 @@ const fetchImage = async (url, width, height) => {
       }
     };
 
-    const compositeManifest = [
-      { input: createTextLayer("GUID IMAGE", headerOptions), top: 50, left: 630 },
-      { input: stain, top: 200, left: 150 },
-      { input: createTextLayer("Kitchen Stain", labelOptions), top: 980, left: 260 },
-      { input: floor, top: 200, left: 1100 },
-      { input: createTextLayer("Kitchen Floor", labelOptions), top: 980, left: 1210 },
-      { input: counter, top: 1100, left: 150 },
-      { input: createTextLayer("Counter Top", labelOptions), top: 1860, left: 290 },
-      { input: cabinet, top: 1100, left: 1080 },
-      { input: createTextLayer("Cabinet", labelOptions), top: 1640, left: 1110 },
-      { input: createTextLayer("Color", labelOptions), top: 1740, left: 1150 },
-      { input: wall, top: 1100, left: 1490 },
-      { input: createTextLayer("Wall", labelOptions), top: 1640, left: 1580 },
-      { input: createTextLayer("Color", labelOptions), top: 1740, left: 1550 },
-    ];
+    // const compositeManifest = [
+    //   { input: createTextLayer("GUID IMAGE", headerOptions), top: 50, left: 630 },
+    //   { input: stain, top: 200, left: 150 },
+    //   { input: createTextLayer("Kitchen Stain", labelOptions), top: 980, left: 260 },
+    //   { input: floor, top: 200, left: 1100 },
+    //   { input: createTextLayer("Kitchen Floor", labelOptions), top: 980, left: 1210 },
+    //   { input: counter, top: 1100, left: 150 },
+    //   { input: createTextLayer("Counter Top", labelOptions), top: 1860, left: 290 },
+    //   { input: cabinet, top: 1100, left: 1080 },
+    //   { input: createTextLayer("Cabinet", labelOptions), top: 1640, left: 1110 },
+    //   { input: createTextLayer("Color", labelOptions), top: 1740, left: 1150 },
+    //   { input: wall, top: 1100, left: 1490 },
+    //   { input: createTextLayer("Wall", labelOptions), top: 1640, left: 1580 },
+    //   { input: createTextLayer("Color", labelOptions), top: 1740, left: 1550 },
+    // ];
 
     // 4. FINAL COMPOSITE
     let collageBuffer;
