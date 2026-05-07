@@ -1,57 +1,67 @@
 import sharp from 'sharp';
 import TextToSVG from 'text-to-svg';
 import path from 'path';
-
-// Load the font from the subfolder inside /api
-// This path is relative to the root of the project during Vercel's build
-const fontPath = path.join(process.cwd(), 'api', 'fonts', 'Arial.ttf');
-const textToSVG = TextToSVG.loadSync(fontPath);
+import fs from 'fs';
 
 export const config = {
   maxDuration: 30
 };
 
 export default async function handler(req, res) {
-  // Allow only POST requests
+  // 1. Allow only POST requests
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed. Please send a POST request.' });
-  }
-
-  const { stainUrl, floorUrl, counterUrl, cabinetUrl, wallUrl } = req.body;
-
-  // Validate that all URLs are present
-  if (!stainUrl || !floorUrl || !counterUrl || !cabinetUrl || !wallUrl) {
-    return res.status(400).json({ error: 'Missing required image URLs' });
+    return res.status(200).json({ message: 'API is awake. Please send a POST request.' });
   }
 
   try {
+    // 2. SAFELY LOAD FONT INSIDE THE HANDLER
+    let fontPath = path.join(process.cwd(), 'api', 'fonts', 'Arial.ttf');
+    
+    // Check fallback path if first one fails
+    if (!fs.existsSync(fontPath)) {
+      fontPath = path.join(process.cwd(), 'fonts', 'Arial.ttf'); 
+    }
+
+    // If both fail, send a clean JSON error showing exactly where it looked
+    if (!fs.existsSync(fontPath)) {
+        return res.status(500).json({ 
+            success: false, 
+            error: "Font file not found on server",
+            currentDirectory: process.cwd(),
+            searched: fontPath
+        });
+    }
+
+    const textToSVG = TextToSVG.loadSync(fontPath);
+
+    // 3. FETCH AND PROCESS IMAGES
+    const { stainUrl, floorUrl, counterUrl, cabinetUrl, wallUrl } = req.body;
+
+    if (!stainUrl || !floorUrl || !counterUrl || !cabinetUrl || !wallUrl) {
+      return res.status(400).json({ error: 'Missing required image URLs' });
+    }
+
     const cw = 2000;
     const ch = 2000;
     const largeSize = 750;
     const smallW = 360;
     const smallH = 500;
 
-    // Internal helper to fetch and resize images
     const fetchImage = async (url, width, height) => {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
-      
+      const timeout = setTimeout(() => controller.abort(), 10000);
       try {
         const response = await fetch(url, { signal: controller.signal });
         if (!response.ok) throw new Error(`Failed to fetch image from: ${url}`);
         
         const arrayBuffer = await response.arrayBuffer();
         const buffer = Buffer.from(arrayBuffer);
-        
-        return await sharp(buffer)
-          .resize(width, height, { fit: 'cover' })
-          .toBuffer();
+        return await sharp(buffer).resize(width, height, { fit: 'cover' }).toBuffer();
       } finally {
         clearTimeout(timeout);
       }
     };
 
-    // Fetch all images in parallel
     const [stain, floor, counter, cabinet, wall] = await Promise.all([
       fetchImage(stainUrl, largeSize, largeSize),
       fetchImage(floorUrl, largeSize, largeSize),
@@ -60,18 +70,9 @@ export default async function handler(req, res) {
       fetchImage(wallUrl, smallW, smallH)
     ]);
 
-    // Define SVG Styles
-    const headerOptions = { 
-      x: 0, y: 0, fontSize: 120, anchor: 'top', 
-      attributes: { fill: 'red', stroke: 'red', 'stroke-width': 2 } 
-    };
-    
-    const labelOptions = { 
-      x: 0, y: 0, fontSize: 80, anchor: 'top', 
-      attributes: { fill: 'black', stroke: 'black', 'stroke-width': 1.5 } 
-    };
+    const headerOptions = { x: 0, y: 0, fontSize: 120, anchor: 'top', attributes: { fill: 'red', stroke: 'red', 'stroke-width': 2 } };
+    const labelOptions = { x: 0, y: 0, fontSize: 80, anchor: 'top', attributes: { fill: 'black', stroke: 'black', 'stroke-width': 1.5 } };
 
-    // Generate SVG Overlays
     const titleSvg = Buffer.from(textToSVG.getSVG("GUID IMAGE", headerOptions));
     const labelStain = Buffer.from(textToSVG.getSVG("Kitchen Stain", labelOptions));
     const labelFloor = Buffer.from(textToSVG.getSVG("Kitchen Floor", labelOptions));
@@ -81,7 +82,6 @@ export default async function handler(req, res) {
     const labelWall1 = Buffer.from(textToSVG.getSVG("Wall", labelOptions));
     const labelWall2 = Buffer.from(textToSVG.getSVG("Color", labelOptions));
 
-    // Arrange the layout
     const compositeManifest = [
       { input: titleSvg, top: 50, left: 630 },
       { input: stain, top: 200, left: 150 },
@@ -98,20 +98,13 @@ export default async function handler(req, res) {
       { input: labelWall2, top: 1740, left: 1550 },
     ];
 
-    // Create the final collage
     const collageBuffer = await sharp({
-      create: { 
-        width: cw, 
-        height: ch, 
-        channels: 4, 
-        background: { r: 255, g: 255, b: 255, alpha: 1 } 
-      }
+      create: { width: cw, height: ch, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } }
     })
     .composite(compositeManifest)
     .jpeg({ quality: 90 })
     .toBuffer();
 
-    // Return as Base64 JSON
     const base64 = collageBuffer.toString('base64');
 
     return res.status(200).json({
@@ -121,21 +114,10 @@ export default async function handler(req, res) {
     });
 
   } catch (err) {
-    console.error("Collage Generation Error:", err);
+    console.error("Fatal Error inside handler:", err);
     return res.status(500).json({ success: false, error: err.message });
   }
 }
-
-
-
-
-
-
-
-
-
-
-
 
 
 
