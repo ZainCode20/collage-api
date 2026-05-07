@@ -21,51 +21,62 @@ export default async function handler(req, res) {
     const { stainUrl, floorUrl, counterUrl, cabinetUrl, wallUrl } = req.body;
 
     // 2. BULLETPROOF IMAGE FETCHER
-const fetchImage = async (url, width, height) => {
-  try {
-    console.log("Fetching:", url);
+// const fetchImage = async (url, width, height) => {
+//   try {
+//     console.log("Fetching:", url);
 
-    const response = await fetch(url);
+//     const response = await fetch(url);
 
-    const contentType = response.headers.get("content-type");
-    console.log("Content-Type:", contentType);
+//     const contentType = response.headers.get("content-type");
+//     console.log("Content-Type:", contentType);
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+//     if (!response.ok) {
+//       throw new Error(`HTTP ${response.status}`);
+//     }
 
-    if (!contentType || !contentType.startsWith("image")) {
-      throw new Error(`Not an image: ${contentType}`);
-    }
+//     if (!contentType || !contentType.startsWith("image")) {
+//       throw new Error(`Not an image: ${contentType}`);
+//     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+//     const arrayBuffer = await response.arrayBuffer();
+//     const buffer = Buffer.from(arrayBuffer);
 
-    console.log("Buffer size:", buffer.length);
+//     console.log("Buffer size:", buffer.length);
 
-    if (buffer.length < 1000) {
-      throw new Error("Image too small / corrupted");
-    }
+//     if (buffer.length < 1000) {
+//       throw new Error("Image too small / corrupted");
+//     }
 
-    const image = sharp(buffer);
+//     const image = sharp(buffer);
 
-    // 🔥 FORCE VALIDATION
+//     // 🔥 FORCE VALIDATION
+//     const metadata = await image.metadata();
+//     console.log("Metadata:", metadata);
+
+//     if (!metadata || !metadata.width) {
+//       throw new Error("Invalid image metadata");
+//     }
+
+//     return await image
+//       .resize(width, height, { fit: 'cover' })
+//       .toBuffer();
+
+//   } catch (e) {
+//     throw new Error(`Failed on image: ${url} | ${e.message}`);
+//   }
+// };
+
+    const image = sharp(buffer, { failOnError: false });
+
     const metadata = await image.metadata();
-    console.log("Metadata:", metadata);
-
+    
     if (!metadata || !metadata.width) {
       throw new Error("Invalid image metadata");
     }
-
+    
     return await image
       .resize(width, height, { fit: 'cover' })
       .toBuffer();
-
-  } catch (e) {
-    throw new Error(`Failed on image: ${url} | ${e.message}`);
-  }
-};
-
     // Fetch images and wait for all to finish
     const [stain, floor, counter, cabinet, wall] = await Promise.all([
       fetchImage(stainUrl, 750, 750),
